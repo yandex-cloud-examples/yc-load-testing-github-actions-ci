@@ -1,0 +1,122 @@
+name: Run sample load tests
+run-name: load-testing
+on:
+  - push
+  - workflow_dispatch
+env:
+  WORKFLOW_ID: ${{ github.run_id }}
+
+jobs:
+  create-agents:
+    name: create agents
+    runs-on: ubuntu-latest
+    outputs:
+      agent-ids: ${{ steps.create-agents.outputs.agent-ids }}
+    steps:
+      - id: create-agents
+        uses: yandex-cloud/yc-github-loadtesting-ci/agents-create@v1-beta
+        with:
+          auth-key-json-base64: ${{ secrets.YC_LOADTESTING_KEY_JSON_BASE64 }}
+          folder-id: ${{ vars.YC_LOADTESTING_FOLDER_ID }}
+
+          count: 3
+          service-account-id: ${{ vars.YC_LOADTESTING_AGENT_SA_ID }}
+          vm-zone: ru-central1-b
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ github.job }}
+          path: ${{ steps.create-agents.outputs.artifacts-dir }}
+
+  loadtesting-sample-smoke:
+    name: 'suite: smoke test'
+    continue-on-error: true
+    needs:
+      - create-agents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: run
+        uses: yandex-cloud/yc-github-loadtesting-ci/test-suite@v1-beta
+        with:
+          auth-key-json-base64: ${{ secrets.YC_LOADTESTING_KEY_JSON_BASE64 }}
+          folder-id: ${{ vars.YC_LOADTESTING_FOLDER_ID }}
+          test-directories: |-
+            "${{ github.workspace }}/sample-tests/smoke"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ github.job }}
+          path: ${{ steps.run.outputs.artifacts-dir }}
+
+  loadtesting-sample-basic:
+    name: 'suite: basic tests'
+    continue-on-error: true
+    needs:
+      - create-agents
+      # - loadtesting-sample-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: run
+        uses: yandex-cloud/yc-github-loadtesting-ci/test-suite@v1-beta
+        with:
+          auth-key-json-base64: ${{ secrets.YC_LOADTESTING_KEY_JSON_BASE64 }}
+          folder-id: ${{ vars.YC_LOADTESTING_FOLDER_ID }}
+          test-directories: |-
+            "${{ github.workspace }}/sample-tests/root-const"
+            "${{ github.workspace }}/sample-tests/root-imbalance"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ github.job }}
+          path: ${{ steps.run.outputs.artifacts-dir }}
+
+  loadtesting-sample-mixed:
+    name: 'suite: mixed tests'
+    continue-on-error: true
+    needs:
+      - create-agents
+      # - loadtesting-sample-smoke
+      # - loadtesting-sample-basic
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: run
+        uses: yandex-cloud/yc-github-loadtesting-ci/test-suite@v1-beta
+        with:
+          auth-key-json-base64: ${{ secrets.YC_LOADTESTING_KEY_JSON_BASE64 }}
+          folder-id: ${{ vars.YC_LOADTESTING_FOLDER_ID }}
+          test-directories: |-
+            "${{ github.workspace }}/sample-tests/mixed-synthetic-payload"
+            "${{ github.workspace }}/sample-tests/mixed-irl-payload"
+            "${{ github.workspace }}/sample-tests/mixed-irl-payload-multi"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ github.job }}
+          path: ${{ steps.run.outputs.artifacts-dir }}
+
+  delete-agents:
+    name: delete agents
+    needs:
+      - create-agents
+      - loadtesting-sample-smoke
+      - loadtesting-sample-basic
+      - loadtesting-sample-mixed
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - id: delete-agents
+        uses: yandex-cloud/yc-github-loadtesting-ci/agents-delete@v1-beta
+        with:
+          auth-key-json-base64: ${{ secrets.YC_LOADTESTING_KEY_JSON_BASE64 }}
+          folder-id: ${{ vars.YC_LOADTESTING_FOLDER_ID }}
+
+          agent-ids: ${{ needs.create-agents.outputs.agent-ids }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ github.job }}
+          path: ${{ steps.delete-agents.outputs.artifacts-dir }}
